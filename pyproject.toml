@@ -1,0 +1,58 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "headless-comfy"
+version = "0.1.0"
+description = "A thin, headless Python runtime over a pinned vendored ComfyUI core"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Nguyen" }]
+dependencies = [
+  "comfyui-frontend-package==1.52.7",
+  "comfyui-workflow-templates==0.11.60",
+  "comfyui-embedded-docs==0.5.11",
+  "torch",
+  "torchsde",
+  "torchvision",
+  "torchaudio",
+  "numpy>=1.25.0",
+  "einops",
+  "transformers>=4.50.3",
+  "tokenizers>=0.13.3",
+  "sentencepiece",
+  "safetensors>=0.4.2",
+  "aiohttp>=3.11.8",
+  "yarl>=1.18.0",
+  "pyyaml",
+  "Pillow",
+  "scipy",
+  "tqdm",
+  "psutil",
+  "alembic",
+  "SQLAlchemy>=2.0.0",
+  "filelock",
+  "av>=17.0.0",
+  "comfy-kitchen==0.2.34",
+  "comfy-aimdo==0.5.3",
+  "requests",
+  "simpleeval>=1.0.0",
+  "blake3",
+  "kornia>=0.7.1",
+  "spandrel",
+  "pydantic~=2.0",
+  "pydantic-settings~=2.0",
+  "PyOpenGL>=3.1.8",
+  "comfy-angle",
+]
+
+[project.scripts]
+headless-comfy = "headless_comfy.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/headless_comfy"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "scripts", "examples", "README.md", "LICENSE", "pyproject.toml", "COMFYUI_REF"]

@@ -1,0 +1,4 @@
+[env]
+_.python.venv = { path = ".venv", create = true, python = "3.13", uv_create_args = [
+  "--seed",
+] }
