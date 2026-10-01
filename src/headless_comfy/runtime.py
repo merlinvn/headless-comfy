@@ -62,6 +62,27 @@ class ComfyRuntime:
             strength_model=strength,
         )[0]
 
+    def apply_loras(self, model: Any, loras, clip: Any = None):
+        """Apply an ordered stack to the supplied base; return (model, clip).
+
+        Each new job should call this with the original base model/CLIP.
+        Trigger words are explicit LoraSpec fields, never guessed from filenames.
+        """
+        specs = tuple(loras)
+        if clip is None and any(spec.clip_strength != 0 for spec in specs):
+            raise ValueError("CLIP strength requires a CLIP model")
+        for spec in specs:
+            if spec.strength == 0 and spec.clip_strength == 0:
+                continue
+            if spec.clip_strength == 0:
+                model = self.apply_lora(model, spec.name, spec.strength)
+            else:
+                model, clip = self.nodes.LoraLoader().load_lora(
+                    model=model, clip=clip, lora_name=spec.name,
+                    strength_model=spec.strength, strength_clip=spec.clip_strength,
+                )
+        return model, clip
+
     def encode(self, clip: Any, text: str) -> Any:
         return self.nodes.CLIPTextEncode().encode(clip=clip, text=text)[0]
 

@@ -16,6 +16,8 @@ def _version(name: str) -> str:
 def doctor() -> int:
     print(f"Python: {platform.python_version()} ({sys.executable})")
     print(f"headless-comfy: {_version('headless-comfy')}")
+    from ._bootstrap import snapshot_info
+    print(f"ComfyUI snapshot: {snapshot_info()}")
     print(f"torch: {_version('torch')}")
     print(f"transformers: {_version('transformers')}")
     print(f"safetensors: {_version('safetensors')}")

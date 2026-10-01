@@ -6,3 +6,5 @@ dist/
 *.egg-info/
 .vendor-tmp/
 src/headless_comfy/_vendor/ComfyUI/
+src/headless_comfy/_vendor/snapshot.json
+.vendor-*/

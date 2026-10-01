@@ -4,15 +4,15 @@ build-backend = "hatchling.build"
 
 [project]
 name = "headless-comfy"
-version = "0.1.1"
+version = "0.2.0"
 description = "A thin, headless Python runtime over a pinned vendored ComfyUI core"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Nguyen" }]
 dependencies = [
-  "comfyui-frontend-package==1.52.7",
-  "comfyui-workflow-templates==0.11.60",
+  "comfyui-frontend-package==1.51.10",
+  "comfyui-workflow-templates==0.11.57",
   "comfyui-embedded-docs==0.5.11",
   "torch",
   "torchsde",
@@ -35,7 +35,7 @@ dependencies = [
   "SQLAlchemy>=2.0.0",
   "filelock",
   "av>=17.0.0",
-  "comfy-kitchen==0.2.34",
+  "comfy-kitchen==0.2.33",
   "comfy-aimdo==0.5.3",
   "requests",
   "simpleeval>=1.0.0",
@@ -62,6 +62,8 @@ include = [
   "src",
   "scripts",
   "examples",
+  "tests",
+  "notebooks",
   "README.md",
   "LICENSE",
   "pyproject.toml",
