@@ -31,7 +31,7 @@ class NotebookTests(unittest.TestCase):
             return directory / source.name
         self.namespace['cache_file'] = cache
         self.namespace['assert_registered'] = lambda *args: self.registered.append(args)
-        self.torch_patch = patch.dict(sys.modules, {'torch': SimpleNamespace(inference_mode=contextlib.nullcontext)})
+        self.torch_patch = patch.dict(sys.modules, {'torch': SimpleNamespace(no_grad=contextlib.nullcontext, inference_mode=lambda: (_ for _ in ()).throw(AssertionError('Pipeline must use no_grad for ComfyUI compatibility')))})
         self.torch_patch.start()
         self.addCleanup(self.torch_patch.stop)
 

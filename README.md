@@ -138,7 +138,8 @@ A future image-model upscale stage can operate on `state.images` after decode;
 this release supplies latent upscale, not an ESRGAN/image-model backend.
 `Pipeline.run(..., on_stage=callback)` supports previews/inspection without embedding
 notebook display code in the runtime. Batch pipelines must produce decoded images.
-Pipeline execution runs under Torch inference mode. Existing low-level runtime APIs
+Pipeline execution runs under `torch.no_grad()` so ComfyUI can create Parameters
+during LoRA application and sampling without building gradient graphs. Existing low-level runtime APIs
 remain available, including `apply_lora`.
 
 ## Upgrade the pinned engine and package

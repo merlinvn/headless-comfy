@@ -127,7 +127,7 @@ class Pipeline:
             raise ValueError("seed must be an unsigned 64-bit integer")
         if latent is None and (width <= 0 or height <= 0 or width % 8 or height % 8):
             raise ValueError("Dimensions must be positive multiples of 8")
-        with torch.inference_mode():
+        with torch.no_grad():
             positive = runtime.encode(clip, prompt)
             negative = (runtime.encode(clip, negative_prompt) if negative_prompt
                         else runtime.zero_conditioning(positive))

@@ -53,7 +53,7 @@ class FakeRuntime:
 
 class CoreTests(unittest.TestCase):
     def setUp(self):
-        self.torch_patch = patch.dict(sys.modules, {'torch': SimpleNamespace(inference_mode=contextlib.nullcontext)})
+        self.torch_patch = patch.dict(sys.modules, {'torch': SimpleNamespace(no_grad=contextlib.nullcontext, inference_mode=lambda: (_ for _ in ()).throw(AssertionError('Pipeline must use no_grad for ComfyUI compatibility')))})
         self.torch_patch.start()
         self.addCleanup(self.torch_patch.stop)
 
