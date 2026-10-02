@@ -144,13 +144,29 @@ class ComfyRuntime:
 
     @staticmethod
     def tensor_to_pil(image):
+        """Convert ComfyUI image output to PIL, removing singleton batch axes.
+
+        VAE outputs may carry more than one leading batch dimension, e.g.
+        [1, 1, height, width, channels]. The original Colab helper handled
+        this by repeatedly squeezing leading dimensions of size one.
+        """
         import numpy as np
         from PIL import Image
 
-        if image.ndim == 4:
+        if isinstance(image, (list, tuple)):
+            if not image:
+                raise ValueError("Expected a non-empty image batch")
             image = image[0]
-        array = (image.detach().cpu().clamp(0, 1).numpy() * 255.0).round().astype(np.uint8)
-        return Image.fromarray(array)
+        if hasattr(image, "detach"):
+            image = image.detach().cpu().numpy()
+        image = np.asarray(image)
+        while image.ndim > 3 and image.shape[0] == 1:
+            image = np.squeeze(image, axis=0)
+        if image.ndim != 3:
+            raise ValueError(f"Expected HxWxC image after removing singleton batch axes, got {image.shape}")
+        if image.dtype != np.uint8:
+            image = (np.clip(image, 0, 1) * 255.0).round().astype(np.uint8)
+        return Image.fromarray(image)
 
     def soft_empty_cache(self) -> None:
         self.model_management.soft_empty_cache()
