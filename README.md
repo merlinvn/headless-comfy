@@ -113,10 +113,11 @@ Krea2 model-only workflow; set it for LoRAs trained with text encoder weights.
 shuffled and balanced across the batch, with counts differing by at most one.
 Both persist seeds and chosen dimensions before inference. A configuration
 hash selects the manifest directory, and resume checks PNG job metadata and file integrity.
-Changed prompts, strengths, models or pipeline settings create a new run. Provide
-immutable model/LoRA identities (ideally SHA256); filenames alone cannot detect replaced
-weights. To reroll the same configuration, select a new output directory. One process
-should own an output directory; concurrent writers are not supported.
+Changing LoRA stacks reuses that manifest folder; each stack's jobs and image metadata
+remain distinct. Changed prompts, base models, sizes or pipeline settings create a new
+folder. Provide immutable model/LoRA identities (ideally SHA256); filenames alone cannot
+detect replaced weights. To reroll the same configuration, select a new output directory.
+One process should own an output directory; concurrent writers are not supported.
 
 PNG metadata includes the entire ordered stack, sampling stages, models, seed,
 resolution, package version and vendored commit. These record the recipe; results

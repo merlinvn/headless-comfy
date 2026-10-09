@@ -107,13 +107,40 @@ class CoreTests(unittest.TestCase):
             self.assertEqual(repaired[0]['seed'], first[0]['seed'])
             changed = runner.run(['changed'], stacks, directory, sizes=((16, 24),), seed_mode='all_random')
             self.assertNotEqual(first[0]['path'], changed[0]['path'])
+            manifests_before_stack_change = list(Path(directory).rglob('manifest.json'))
             changed_stack = runner.run(['hello'], [LoraStack('combo', (LoraSpec('a', .4),))],
-                                       directory, sizes=((16, 24),))
-            self.assertNotEqual(first[0]['path'], changed_stack[0]['path'])
+                                       directory, sizes=((16, 24),), seed_mode='all_random')
+            self.assertEqual(Path(first[0]['path']).parents[1],
+                             Path(changed_stack[0]['path']).parents[1])
+            self.assertFalse(changed_stack[0]['skipped'])
+            self.assertEqual(list(Path(directory).rglob('manifest.json')),
+                             manifests_before_stack_change)
             from PIL import Image
             with Image.open(changed[0]['path']) as image:
                 metadata = json.loads(image.info['generation_metadata'])
-                self.assertEqual(len(metadata['config']['stacks'][0]['loras']), 2)
+                self.assertEqual(len(metadata['stack']['loras']), 2)
+
+    def test_manifest_folder_is_shared_when_lora_stacks_change(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = FakeRuntime()
+            runner = self.runner(runtime)
+            prompts = ['one', 'two', 'three', 'four']
+            sizes = ((16, 24), (24, 16), (16, 16))
+            first_stack = LoraStack('first', (LoraSpec('a'),))
+            added_stack = LoraStack('second', (LoraSpec('b'),))
+
+            first = runner.run(prompts, [first_stack], directory, sizes=sizes)
+            manifest_paths = list(Path(directory).rglob('manifest.json'))
+            shared = {(r['prompt_index']): (r['seed'], tuple(r['size'])) for r in first}
+
+            both = runner.run(prompts, [first_stack, added_stack], directory, sizes=sizes)
+            self.assertEqual(list(Path(directory).rglob('manifest.json')), manifest_paths)
+            added = [r for r in both if r['stack'] == 'second']
+            self.assertEqual({r['prompt_index']: (r['seed'], tuple(r['size'])) for r in added}, shared)
+
+            remaining = runner.run(prompts, [added_stack], directory, sizes=sizes)
+            self.assertEqual(list(Path(directory).rglob('manifest.json')), manifest_paths)
+            self.assertTrue(all(r['skipped'] for r in remaining))
 
     def test_legacy_subfolders_all_loras_all_prompts_all_jobs(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -70,7 +70,7 @@ class NotebookTests(unittest.TestCase):
             with Image.open(combo_result['path']) as image:
                 metadata = json.loads(image.info['generation_metadata'])
             self.assertEqual(metadata['prompt'], 'a_word, b_word, c_word, portrait')
-            self.assertEqual([s['strength'] for s in metadata['config']['stacks'][1]['loras']], [.4, .2, .3])
+            self.assertEqual([s['strength'] for s in metadata['stack']['loras']], [.4, .2, .3])
         with self.assertRaises(ValueError):
             build({'name': 'empty', 'loras': []})
 

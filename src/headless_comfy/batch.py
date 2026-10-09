@@ -103,58 +103,82 @@ class BatchRunner:
             raise ValueError("Need prompts, sizes and uniquely named stacks")
         if any(len(s) != 2 or any(v <= 0 or v % 8 for v in s) for s in sizes):
             raise ValueError("Dimensions must be positive multiples of 8")
-        config = {"prompts": prompts, "stacks": [asdict(s) for s in stacks],
-                  "pipeline": self.pipeline.metadata(), "models": self.model_ids,
+        base_models = {name: identity for name, identity in self.model_ids.items()
+                       if not name.startswith("lora:")}
+        config = {"prompts": prompts,
+                  "pipeline": self.pipeline.metadata(), "models": base_models,
                   "sizes": sizes, "seed_mode": seed_mode, "negative_prompt": negative_prompt,
                   "size_assignment": "balanced_random_v1",
+                  "manifest_layout": "shared_prompt_plan_v1",
                   "package_version": __version__, "comfyui": snapshot_info(),
                   "group_by_run": group_by_run}
         run_id = fingerprint(config)
         root = Path(output_dir) / run_id[:16]
         root.mkdir(parents=True, exist_ok=True)
         manifest_path = root / "manifest.json"
+        rng = random.SystemRandom()
+
+        # Shuffle a repeated list so each size occurs equally often (within one)
+        # while keeping order random. A random start makes the remainder unbiased.
+        def balanced_sizes(count):
+            start = rng.choice(range(len(sizes)))
+            choices = [sizes[(start + i) % len(sizes)] for i in range(count)]
+            rng.shuffle(choices)
+            return choices
+
+        def stack_identity(stack):
+            lora_models = {f"lora:{spec.name}": self.model_ids[f"lora:{spec.name}"]
+                           for spec in stack.loras if f"lora:{spec.name}" in self.model_ids}
+            return fingerprint({"stack": asdict(stack), "models": lora_models}), lora_models
+
         if manifest_path.exists():
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             if fingerprint(manifest["config"]) != run_id:
                 raise ValueError("Manifest configuration mismatch")
         else:
-            rng = random.SystemRandom()
-            shared = [rng.randrange(2**32) for _ in prompts]
-            # Shuffle a repeated list so each size occurs equally often (within one)
-            # while keeping order random. per_prompt shares each pick across stacks.
-            def balanced_sizes(count):
-                start = rng.choice(range(len(sizes)))
-                choices = [sizes[(start + i) % len(sizes)] for i in range(count)]
-                rng.shuffle(choices)
-                return choices
-
-            jobs_to_run = [(stack, i) for stack in stacks for i in range(len(prompts))]
             if seed_mode == "per_prompt":
-                prompt_sizes = balanced_sizes(len(prompts))
-                job_sizes = None
+                prompt_plan = [{"prompt_index": i, "seed": rng.randrange(2**32),
+                                "size": size}
+                               for i, size in enumerate(balanced_sizes(len(prompts)))]
             else:
-                prompt_sizes = None
-                job_sizes = balanced_sizes(len(jobs_to_run))
-            # Seed and size are written BEFORE sampling, even in all_random mode.
-            jobs = [{"stack": stack.name, "prompt_index": i,
-                     "seed": shared[i] if seed_mode == "per_prompt" else rng.randrange(2**32),
-                     "size": prompt_sizes[i] if prompt_sizes is not None else job_sizes[job_index]}
-                    for job_index, (stack, i) in enumerate(jobs_to_run)]
-            manifest = {"config": config, "jobs": jobs}
+                prompt_plan = []
+            manifest = {"config": config, "prompt_plan": prompt_plan, "jobs": []}
+
+        # Jobs are keyed by the full stack definition, while the shared prompt plan
+        # and manifest folder remain stable when LoRA stacks are added or removed.
+        jobs = manifest.setdefault("jobs", [])
+        existing = {(job.get("stack_id"), job["prompt_index"]) for job in jobs}
+        manifest_changed = False
+        plan_by_prompt = {item["prompt_index"]: item for item in manifest["prompt_plan"]}
+        for stack in stacks:
+            stack_id, _ = stack_identity(stack)
+            missing = [i for i in range(len(prompts)) if (stack_id, i) not in existing]
+            new_sizes = balanced_sizes(len(missing)) if seed_mode == "all_random" else []
+            for offset, i in enumerate(missing):
+                if seed_mode == "per_prompt":
+                    planned = plan_by_prompt[i]
+                    seed, size = planned["seed"], planned["size"]
+                else:
+                    seed, size = rng.randrange(2**32), new_sizes[offset]
+                jobs.append({"stack": stack.name, "stack_id": stack_id,
+                             "prompt_index": i, "seed": seed, "size": size})
+                manifest_changed = True
+        if manifest_changed or not manifest_path.exists():
             atomic_write(manifest_path, lambda tmp: tmp.write_text(
                 json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"))
         results = []
         for stack in stacks:
             model = clip = None
             try:
-                for job in (j for j in manifest["jobs"] if j["stack"] == stack.name):
+                stack_id, lora_models = stack_identity(stack)
+                for job in (j for j in manifest["jobs"] if j["stack_id"] == stack_id):
                     if group_by_run:
                         path = root / stack.name / f"p{job['prompt_index'] + 1:04d}_seed{job['seed']}.png"
                     else:
                         subdir = stack.output_subdir if stack.output_subdir is not None else stack.name
                         path = Path(output_dir) / subdir / (
                             f"p{job['prompt_index'] + 1:02d}_{stack.name}_seed{job['seed']}.png")
-                    job_id = fingerprint({"run": run_id, "job": job})
+                    job_id = fingerprint({"run": run_id, "stack": stack_id, "job": job})
                     valid = False
                     if skip_existing and resume_mode == "filename":
                         # Legacy notebook: pXX_loraTag_seed*.png, regardless of seed/config.
@@ -189,6 +213,7 @@ class BatchRunner:
                             raise ValueError("Batch pipeline must produce images (add DecodeStage)")
                         image = self.runtime.tensor_to_pil(state.images)
                         metadata = {"job_id": job_id, "run_id": run_id, "prompt": prompt,
+                                    "stack": asdict(stack), "stack_models": lora_models,
                                     "job": job, "config": config, "final_size": image.size}
                         info = PngInfo()
                         info.add_text("job_id", job_id)
