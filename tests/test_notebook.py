@@ -79,7 +79,8 @@ class NotebookTests(unittest.TestCase):
         fields = {'WIDTH', 'HEIGHT', 'ASPECT_RATIOS', 'SIZES'}
         dimensions_code = ast.Module(body=[node for node in tree.body if isinstance(node, ast.Assign)
             and any(isinstance(t, ast.Name) and t.id in fields for t in node.targets)], type_ignores=[])
-        rng = SimpleNamespace(randrange=lambda stop: 123, choice=lambda sizes: sizes[-1])
+        rng = SimpleNamespace(randrange=lambda stop: 123, choice=lambda sizes: sizes[-1],
+                              shuffle=lambda values: None)
         for mode in ('all_random', 'per_prompt'):
             for flag in (True, False):
                 with self.subTest(seed_mode=mode, random_aspect_ratio=flag), tempfile.TemporaryDirectory() as directory:

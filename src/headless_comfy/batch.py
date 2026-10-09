@@ -123,7 +123,8 @@ class BatchRunner:
             # Shuffle a repeated list so each size occurs equally often (within one)
             # while keeping order random. per_prompt shares each pick across stacks.
             def balanced_sizes(count):
-                choices = [sizes[i % len(sizes)] for i in range(count)]
+                start = rng.choice(range(len(sizes)))
+                choices = [sizes[(start + i) % len(sizes)] for i in range(count)]
                 rng.shuffle(choices)
                 return choices
 
