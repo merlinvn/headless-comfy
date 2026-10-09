@@ -108,8 +108,9 @@ or supply `""` to disable it. Every stack starts from the base model and CLIP, p
 between jobs. `clip_strength` defaults to zero for compatibility with the existing
 Krea2 model-only workflow; set it for LoRAs trained with text encoder weights.
 
-`per_prompt` shares a prompt's seed across stacks; `all_random` assigns a seed to
-each image. Both persist seeds and chosen dimensions before inference. A configuration
+`per_prompt` shares a prompt's seed and randomly chosen dimensions across stacks;
+`all_random` assigns a seed and random dimensions to each image. Both persist seeds
+and chosen dimensions before inference. A configuration
 hash selects the manifest directory, and resume checks PNG job metadata and file integrity.
 Changed prompts, strengths, models or pipeline settings create a new run. Provide
 immutable model/LoRA identities (ideally SHA256); filenames alone cannot detect replaced
@@ -144,8 +145,8 @@ remain available, including `apply_lora`.
 
 ## Upgrade the pinned engine and package
 
-1. Set `COMFYUI_REF` to a release tag or full commit SHA. It stays at `v0.35.0`
-   for this change; verify new pins against your GPU/models before upgrading.
+1. Set `COMFYUI_REF` to a release tag or full commit SHA. The current pin is
+   `v0.39.0`; verify new pins against your GPU/models before upgrading.
 2. Run `python scripts/vendor_comfyui.py --sync-dependencies`. This copies the
    selected upstream requirements into `pyproject.toml` and records its resolved
    commit in the wheel. Review dependency changes; Torch/CUDA still depends on your
@@ -239,7 +240,8 @@ save under their name, such as `OUTPUT_DIR/char_a_b_c/`; single characters retai
 their trigger folders. Member order and independent strengths are recorded in PNG
 metadata. Each new entry starts from the original base model and CLIP.
 
-`RANDOM_ASPECT_RATIO=True` selects a size per image from `ASPECT_RATIOS`; `False`
-uses `(WIDTH, HEIGHT)`. This flag applies in both `all_random` and `per_prompt`
-seed modes, independently of seed selection. Dimensions remain persisted for resume.
+`RANDOM_ASPECT_RATIO=True` selects sizes from `ASPECT_RATIOS`; `False` uses
+`(WIDTH, HEIGHT)`. In `per_prompt` mode, one random size is shared by all LoRA
+stacks for a prompt. In `all_random` mode, each image gets its own random size.
+Dimensions remain persisted for resume.
 The old LoRA choices and seven input/output mappings remain in the notebook.

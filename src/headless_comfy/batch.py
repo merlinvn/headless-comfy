@@ -106,6 +106,7 @@ class BatchRunner:
         config = {"prompts": prompts, "stacks": [asdict(s) for s in stacks],
                   "pipeline": self.pipeline.metadata(), "models": self.model_ids,
                   "sizes": sizes, "seed_mode": seed_mode, "negative_prompt": negative_prompt,
+                  "size_assignment": "shared_per_prompt_v1",
                   "package_version": __version__, "comfyui": snapshot_info(),
                   "group_by_run": group_by_run}
         run_id = fingerprint(config)
@@ -119,10 +120,13 @@ class BatchRunner:
         else:
             rng = random.SystemRandom()
             shared = [rng.randrange(2**32) for _ in prompts]
+            # per_prompt keeps dimensions aligned across all stacks for a prompt.
+            prompt_sizes = ([rng.choice(sizes) for _ in prompts]
+                            if seed_mode == "per_prompt" else None)
             # Seed and size are written BEFORE sampling, even in all_random mode.
             jobs = [{"stack": stack.name, "prompt_index": i,
                      "seed": shared[i] if seed_mode == "per_prompt" else rng.randrange(2**32),
-                     "size": rng.choice(sizes)}
+                     "size": prompt_sizes[i] if prompt_sizes is not None else rng.choice(sizes)}
                     for stack in stacks for i in range(len(prompts))]
             manifest = {"config": config, "jobs": jobs}
             atomic_write(manifest_path, lambda tmp: tmp.write_text(
