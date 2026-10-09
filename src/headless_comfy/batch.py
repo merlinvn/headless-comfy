@@ -106,7 +106,7 @@ class BatchRunner:
         config = {"prompts": prompts, "stacks": [asdict(s) for s in stacks],
                   "pipeline": self.pipeline.metadata(), "models": self.model_ids,
                   "sizes": sizes, "seed_mode": seed_mode, "negative_prompt": negative_prompt,
-                  "size_assignment": "shared_per_prompt_v1",
+                  "size_assignment": "balanced_random_v1",
                   "package_version": __version__, "comfyui": snapshot_info(),
                   "group_by_run": group_by_run}
         run_id = fingerprint(config)
@@ -120,14 +120,25 @@ class BatchRunner:
         else:
             rng = random.SystemRandom()
             shared = [rng.randrange(2**32) for _ in prompts]
-            # per_prompt keeps dimensions aligned across all stacks for a prompt.
-            prompt_sizes = ([rng.choice(sizes) for _ in prompts]
-                            if seed_mode == "per_prompt" else None)
+            # Shuffle a repeated list so each size occurs equally often (within one)
+            # while keeping order random. per_prompt shares each pick across stacks.
+            def balanced_sizes(count):
+                choices = [sizes[i % len(sizes)] for i in range(count)]
+                rng.shuffle(choices)
+                return choices
+
+            jobs_to_run = [(stack, i) for stack in stacks for i in range(len(prompts))]
+            if seed_mode == "per_prompt":
+                prompt_sizes = balanced_sizes(len(prompts))
+                job_sizes = None
+            else:
+                prompt_sizes = None
+                job_sizes = balanced_sizes(len(jobs_to_run))
             # Seed and size are written BEFORE sampling, even in all_random mode.
             jobs = [{"stack": stack.name, "prompt_index": i,
                      "seed": shared[i] if seed_mode == "per_prompt" else rng.randrange(2**32),
-                     "size": prompt_sizes[i] if prompt_sizes is not None else rng.choice(sizes)}
-                    for stack in stacks for i in range(len(prompts))]
+                     "size": prompt_sizes[i] if prompt_sizes is not None else job_sizes[job_index]}
+                    for job_index, (stack, i) in enumerate(jobs_to_run)]
             manifest = {"config": config, "jobs": jobs}
             atomic_write(manifest_path, lambda tmp: tmp.write_text(
                 json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"))

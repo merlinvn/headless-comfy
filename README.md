@@ -108,9 +108,10 @@ or supply `""` to disable it. Every stack starts from the base model and CLIP, p
 between jobs. `clip_strength` defaults to zero for compatibility with the existing
 Krea2 model-only workflow; set it for LoRAs trained with text encoder weights.
 
-`per_prompt` shares a prompt's seed and randomly chosen dimensions across stacks;
-`all_random` assigns a seed and random dimensions to each image. Both persist seeds
-and chosen dimensions before inference. A configuration
+`per_prompt` shares a prompt's seed and randomly assigned dimensions across stacks;
+`all_random` assigns a seed and dimensions to each image. Size assignments are
+shuffled and balanced across the batch, with counts differing by at most one.
+Both persist seeds and chosen dimensions before inference. A configuration
 hash selects the manifest directory, and resume checks PNG job metadata and file integrity.
 Changed prompts, strengths, models or pipeline settings create a new run. Provide
 immutable model/LoRA identities (ideally SHA256); filenames alone cannot detect replaced
@@ -241,7 +242,8 @@ their trigger folders. Member order and independent strengths are recorded in PN
 metadata. Each new entry starts from the original base model and CLIP.
 
 `RANDOM_ASPECT_RATIO=True` selects sizes from `ASPECT_RATIOS`; `False` uses
-`(WIDTH, HEIGHT)`. In `per_prompt` mode, one random size is shared by all LoRA
-stacks for a prompt. In `all_random` mode, each image gets its own random size.
+`(WIDTH, HEIGHT)`. Size choices are shuffled and balanced across the batch, with
+counts differing by at most one. In `per_prompt` mode, one size is shared by all
+LoRA stacks for a prompt. In `all_random` mode, each image gets its own size.
 Dimensions remain persisted for resume.
 The old LoRA choices and seven input/output mappings remain in the notebook.
