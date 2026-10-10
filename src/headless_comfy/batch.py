@@ -12,6 +12,7 @@ import tempfile
 from typing import Sequence
 
 from .pipeline import LoraSpec, Pipeline
+from .downloads import cache_file  # Preserve the existing batch.cache_file import.
 
 
 def fingerprint(value) -> str:
@@ -28,20 +29,6 @@ def atomic_write(path: Path, write) -> None:
         temporary.replace(path)
     finally:
         temporary.unlink(missing_ok=True)
-
-
-def cache_file(source: str | Path, directory: str | Path) -> Path:
-    """Copy to local disk atomically. Size/mtime checks are not content hashes."""
-    source, directory = Path(source), Path(directory)
-    if not source.is_file():
-        raise FileNotFoundError(source)
-    target = directory / source.name
-    if source.resolve() == target.resolve():
-        return target
-    if (not target.exists() or target.stat().st_size != source.stat().st_size
-            or target.stat().st_mtime_ns != source.stat().st_mtime_ns):
-        atomic_write(target, lambda tmp: shutil.copy2(source, tmp))
-    return target
 
 
 def load_prompts(source: str | Path, output_dir: str | Path) -> list[str]:

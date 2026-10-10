@@ -74,7 +74,7 @@ This matches the primitives used by the supplied `HeadlessComfy` notebook.
 ## Pipelines and multi-LoRA (0.2.0)
 
 Use `notebooks/HeadlessComfyPipelines.ipynb` in Colab. The setup cell installs
-the 0.2.0 wheel from the GitHub release and upgrades the Colab CUDA PyTorch packages.
+the matching release wheel. Keep the provider's compatible PyTorch/CUDA stack.
 The supplied notebooks in Downloads were reviewed as source material and left intact.
 
 ```python
@@ -101,8 +101,8 @@ results = runner.run(["portrait photograph"], stacks, "/content/drive/MyDrive/ou
 ```
 
 A stack applies all its LoRAs in order, with independent strengths and explicit
-triggers. The Colab notebook retains your `infer_lora_trigger()` and rsync
-`cache_file()` helpers; `cache_lora()` combines caching, registration checks and
+triggers. The Colab notebook retains your `infer_lora_trigger()` helper and uses the package
+`downloads.cache_file()`; `cache_lora()` combines caching, registration checks and
 trigger inference. Omit the trigger to infer it, supply a string to override it,
 or supply `""` to disable it. Every stack starts from the base model and CLIP, preventing accumulation
 between jobs. `clip_strength` defaults to zero for compatibility with the existing
@@ -248,3 +248,150 @@ counts differing by at most one. In `per_prompt` mode, one size is shared by all
 LoRA stacks for a prompt. In `all_random` mode, each image gets its own size.
 Dimensions remain persisted for resume.
 The old LoRA choices and seven input/output mappings remain in the notebook.
+
+## Portable model downloads (0.3.0)
+
+`headless_comfy.downloads` has no Colab/Drive/RunPod imports, GPU initialization,
+provider detection, shell setup, or automatic OS package installation. Python
+`requests` and `filelock` are already package dependencies. `rsync` is unnecessary;
+local files use atomic `shutil.copy2`. `aria2c` is an optional backend installed by
+the environment owner. The default backend is streaming `requests`.
+
+```python
+from headless_comfy.downloads import cache_root, resolve_model_files
+from headless_comfy import ComfyRuntime
+
+root = cache_root()  # HC_CACHE_ROOT or ~/.cache/headless_comfy
+MODEL = {
+    "unet": {
+        "civitai": {
+            "model_version_id": 3091481, "file_id": 2971089,
+            "filename": "krea2_turbo_int8_convrot.safetensors",
+        },
+        "dst_dir": root / "diffusion_models",
+    },
+    "clip": {
+        "hf": {"repo_id": "Comfy-Org/Krea-2",
+               "filename": "text_encoders/qwen3vl_4b_fp8_scaled.safetensors"},
+        "dst_dir": root / "text_encoders", "type": "krea2",
+    },
+    "vae": {
+        "hf": {"repo_id": "Comfy-Org/Krea-2",
+               "filename": "vae/qwen_image_vae.safetensors"},
+        "dst_dir": root / "vae",
+    },
+}
+files = resolve_model_files(MODEL, workers=3)
+hc = ComfyRuntime(root)
+model = hc.load_diffusion_model(files["unet"].name)
+clip = hc.load_clip(files["clip"].name, type=MODEL["clip"]["type"])
+vae = hc.load_vae(files["vae"].name)
+```
+
+These IDs are illustrative and availability/access can change. Replace them with
+your accessible models. A source may instead be `{"src": "/volume/model.safetensors",
+"dst_dir": root / "loras"}`. The resolver accepts one remote source (`civitai` or `hf`) with optional `src`
+fallback, or `src` alone. It rejects
+conflicting configurations targeting the same destination in a parallel batch.
+When both remote and `src` are configured, a valid remote cache/download wins.
+After remote retries fail with `DownloadError`, the resolver warns and copies
+`src` from Drive/local storage. Invalid configuration and filesystem errors do
+not trigger fallback. The returned path uses the local source basename, which
+may differ from the remote filename. Explicit remote SHA256/size constraints also
+apply to fallback unless overridden by top-level local constraints. With no
+hash, you are responsible for selecting suitable fallback weights. Subsequent
+calls try the remote source again; fallback does not permanently disable it.
+
+Hugging Face filenames may include repo subdirectories; destination names use the
+basename, so use separate destination directories to avoid collisions.
+
+Tokens can be explicit (`civitai_token=...`, `hf_token=...`) or environment values:
+`CIVITAI_TOKEN` (fallback `CIVITAI_KEY`) and `HF_TOKEN`. Private/gated HF downloads
+use bearer authentication; your account must have repository access. Bearer tokens
+are stripped on cross-host redirects by requests. Do not put tokens in URLs.
+Only completion identity hashes and remote validators are written to sidecars.
+
+Choose a cache location in the bootstrap, using the **same MODEL configuration**:
+
+| Environment | HC_CACHE_ROOT | Storage lifetime |
+| --- | --- | --- |
+| Colab | `/content/ai_cache` | Temporary runtime disk |
+| RunPod Pod | `/workspace/ai_cache` | Depends on the attached volume and mount |
+| Local Linux | `~/.cache/headless_comfy` | Local disk |
+| Other GPU containers | A writable mounted directory | Depends on storage configuration |
+
+Colab bootstrap can mount Drive and read `google.colab.userdata` outside the
+package. Put secrets into environment variables or pass them directly. On RunPod,
+configure secrets and persistent storage in the Pod template. `/workspace` alone
+does not guarantee persistence through Pod deletion. Network volumes and volume
+disks have different lifecycles ([RunPod storage docs](https://docs.runpod.io/pods/storage/types)).
+Colab VMs have limited lifetimes ([Colab FAQ](https://research.google.com/colaboratory/faq.html)).
+The supplied notebook is still a Colab/Drive example; skip its Drive cell and
+set `HC_SOURCE_ROOT` and replace source/output paths for other environments.
+
+### Completion, resume and integrity
+
+Each target has an OS-backed `filelock` shared by threads/processes. Downloads
+write `.part` plus `.part.json`, then atomically replace the target and record
+`.hc.json` only after validation. Keep these files together on persistent storage.
+Do not remove `.lock` files while workers are active. Shared/network filesystems
+must support consistent file locking and atomic rename across all writers;
+test this on your actual volume. The lock does not protect unrelated downloaders.
+
+Retries start from the original provider API/resolve URL to refresh signed CDN
+URLs. HTTP resume uses a strong ETag or Last-Modified with Range/If-Range. If the
+server ignores Range or changes the validator, the partial file is truncated.
+Without a validator, an interrupted HTTP transfer starts over. Existing completed
+files remain available if a replacement download fails.
+
+Supply `sha256` and/or exact `expected_size` in the `hf`/`civitai` source config
+(or top level for `src`). Available Civitai SHA256 metadata is used automatically;
+rounded `sizeKB` is not treated as an exact byte count. Content-Length validates
+transport size when available. **A completion marker and size cannot detect every
+same-size corruption**; SHA256 validates content on download and cache reuse.
+Files predating sidecars are copied/downloaded once to establish completion.
+
+Pin HF `revision` to a commit and Civitai to a version/file ID. Cached mutable HF
+branches are not revalidated remotely; set top-level `force=True` to refresh.
+For local sources, identity includes resolved source path, size and mtime; use
+SHA256 if files can change while keeping the same size and timestamp.
+
+Top-level remote options: `backend="requests"` or `"aria2"`, `connections=16`
+(1–16; aria2 only), `retries=3`, `timeout=(15, 120)`, `force=False`. `workers`
+controls parallel files; requests uses one stream per file. Low-level public API:
+`aria2_download(url, directory, filename, ...)`. Install aria2 explicitly in a
+Debian/Ubuntu image if desired:
+
+```dockerfile
+RUN apt-get update && apt-get install -y --no-install-recommends aria2 ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+```
+
+### Compatibility verification
+
+Downloader tests use real localhost HTTP transfers for interruption, cache
+corruption, renewed redirects, changed sources, ignored ranges, authentication
+redirect boundaries and competing processes. They do not certify provider uptime,
+private repository permissions, distributed volume locking or GPU inference.
+The added CI matrix runs portable download tests on Linux/macOS/Windows across Python 3.10–3.13.
+
+Inference still requires a compatible PyTorch/CUDA stack, sufficient GPU memory,
+and models supported by the pinned ComfyUI engine. Avoid loading another ComfyUI
+installation in the same Python process. `headless-comfy doctor --require-cuda`
+returns failure when Torch/CUDA or the vendored snapshot is unavailable.
+The downloader also works without CUDA; this does not imply model inference will.
+
+For an actual GPU smoke test, save the MODEL config as JSON (relative `dst_dir`
+values such as `diffusion_models`, `text_encoders`, `vae`), then run in each target:
+
+```bash
+export HC_CACHE_ROOT=/path/to/cache
+headless-comfy doctor --require-cuda
+python examples/portable_smoke.py models.json --output smoke.png
+```
+
+Inspect the PNG, run again to verify cache reuse, interrupt a download and restart,
+then restart the Pod/runtime to check the configured storage lifetime. This script
+uses the Krea2 two-pass defaults; adapt the pipeline for other model families.
+Version 0.3.0 must be built/published before the notebook's release installer can
+fetch it. For testing unreleased changes, install the locally built wheel instead (set `HC_WHEEL_URL` in the notebook).
