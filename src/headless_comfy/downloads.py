@@ -209,11 +209,13 @@ def _transfer_aria2(url, part, state_path, identity, headers, timeout, connectio
         part.unlink(missing_ok=True)
         _sidecar(part, ".aria2").unlink(missing_ok=True)
     _write(state_path, {"source": identity, "validator": validator, "size": total})
-    if any(c in final_url for c in "\r\n"):
-        raise ValueError("Invalid URL")
+    if any(c in final_url + str(part.parent) for c in "\r\n"):
+        raise ValueError("Invalid URL or download directory")
     # Credentials stay out of process arguments and captured diagnostic output.
-    spec = final_url + "\n" + "".join(f"  header={k}: {v}\n" for k, v in final_headers.items())
-    result = subprocess.run([binary, "--input-file=-", f"--dir={part.parent}", f"--out={part.name}",
+    # With --input-file, aria2 requires out on the individual input entry.
+    spec = (final_url + f"\n  dir={part.parent}\n  out={part.name}\n"
+            + "".join(f"  header={k}: {v}\n" for k, v in final_headers.items()))
+    result = subprocess.run([binary, "--input-file=-",
                              "--continue=true", "--allow-overwrite=true", "--auto-file-renaming=false",
                              "--max-tries=1", f"--connect-timeout={timeout[0] if isinstance(timeout, tuple) else timeout}",
                              f"--timeout={timeout[1] if isinstance(timeout, tuple) else timeout}", f"--max-connection-per-server={connections}",
@@ -223,6 +225,8 @@ def _transfer_aria2(url, part, state_path, identity, headers, timeout, connectio
                             stderr=subprocess.DEVNULL)
     if result.returncode:
         raise DownloadError(f"aria2c failed (exit {result.returncode})")
+    if not part.is_file():
+        raise DownloadError("aria2c did not produce the requested file")
     if total is not None and part.stat().st_size != total:
         raise DownloadError("Incomplete aria2c download")
     return total

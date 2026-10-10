@@ -226,6 +226,8 @@ class DownloadsTests(unittest.TestCase):
         def run(args, **kwargs):
             self.assertNotIn('aria-secret', ' '.join(args))
             self.assertIn('Authorization: Bearer aria-secret', kwargs['input'])
+            self.assertIn('  out=model.bin.part\n', kwargs['input'])
+            self.assertIn(f'  dir={self.root}\n', kwargs['input'])
             self.assertEqual(kwargs['stdout'], subprocess.DEVNULL)
             (self.root / 'model.bin.part').write_bytes(DATA)
             return type('Result', (), {'returncode': 0})()
