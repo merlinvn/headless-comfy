@@ -373,7 +373,10 @@ Downloader tests use real localhost HTTP transfers for interruption, cache
 corruption, renewed redirects, changed sources, ignored ranges, authentication
 redirect boundaries and competing processes. They do not certify provider uptime,
 private repository permissions, distributed volume locking or GPU inference.
-The added CI matrix runs portable download tests on Linux/macOS/Windows across Python 3.10–3.13.
+The downloader CI uses four configurations: Ubuntu/Python 3.10 and 3.13,
+macOS/Python 3.13, and Windows/Python 3.13. It runs for related source, dependency,
+test or workflow changes on branches/PRs, or manually; release tags do not rerun
+the matrix. Ubuntu jobs exercise real aria2 transfers.
 
 Inference still requires a compatible PyTorch/CUDA stack, sufficient GPU memory,
 and models supported by the pinned ComfyUI engine. Avoid loading another ComfyUI

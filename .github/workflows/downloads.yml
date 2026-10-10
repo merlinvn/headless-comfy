@@ -1,7 +1,28 @@
 name: portable-downloads
 on:
   push:
+    branches: ['**']  # Branch pushes only; release tags reuse tested commits.
+    paths:
+      - 'src/headless_comfy/downloads.py'
+      - 'src/headless_comfy/__init__.py'
+      - 'src/headless_comfy/_bootstrap.py'
+      - 'src/headless_comfy/cli.py'
+      - 'src/headless_comfy/runtime.py'
+      - 'src/headless_comfy/pipeline.py'
+      - 'tests/test_downloads.py'
+      - 'pyproject.toml'
+      - '.github/workflows/downloads.yml'
   pull_request:
+    paths:
+      - 'src/headless_comfy/downloads.py'
+      - 'src/headless_comfy/__init__.py'
+      - 'src/headless_comfy/_bootstrap.py'
+      - 'src/headless_comfy/cli.py'
+      - 'src/headless_comfy/runtime.py'
+      - 'src/headless_comfy/pipeline.py'
+      - 'tests/test_downloads.py'
+      - 'pyproject.toml'
+      - '.github/workflows/downloads.yml'
   workflow_dispatch:
 permissions:
   contents: read
@@ -10,8 +31,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        python: ['3.10', '3.11', '3.12', '3.13']
+        include:
+          - os: ubuntu-latest
+            python: '3.10'
+          - os: ubuntu-latest
+            python: '3.13'
+          - os: macos-latest
+            python: '3.13'
+          - os: windows-latest
+            python: '3.13'
     runs-on: ${{ matrix.os }}
     env:
       PYTHONPATH: src
