@@ -28,7 +28,7 @@ jobs:
 
       - name: Test orchestration
         run: |
-          python -m pip install Pillow requests filelock
+          python -m pip install Pillow requests filelock tqdm
           PYTHONPATH=src python -m unittest discover -s tests -v
 
       - name: Check release tag matches package version
