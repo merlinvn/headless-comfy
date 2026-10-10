@@ -223,16 +223,31 @@ class DownloadsTests(unittest.TestCase):
         self.assertEqual(len(self.server.calls), count)
 
     def test_aria2_passes_credentials_via_stdin_and_renews_redirect(self):
-        def run(args, **kwargs):
+        class Input:
+            def __init__(self): self.value = ''
+            def write(self, value): self.value += value
+            def close(self): pass
+        class Process:
+            def __init__(self):
+                self.stdin = Input()
+                self.returncode = 0
+            def poll(self): return self.returncode
+            def wait(self): return self.returncode
+            def kill(self): self.returncode = -1
+        processes = []
+        def spawn(args, **kwargs):
             self.assertNotIn('aria-secret', ' '.join(args))
-            self.assertIn('Authorization: Bearer aria-secret', kwargs['input'])
-            self.assertIn('  out=model.bin.part\n', kwargs['input'])
-            self.assertIn(f'  dir={self.root.resolve()}\n', kwargs['input'])
             self.assertEqual(kwargs['stdout'], subprocess.DEVNULL)
             (self.root / 'model.bin.part').write_bytes(DATA)
-            return type('Result', (), {'returncode': 0})()
-        with patch.object(d.shutil, 'which', return_value='aria2c'), patch.object(d.subprocess, 'run', side_effect=run):
+            process = Process()
+            processes.append(process)
+            return process
+        with patch.object(d.shutil, 'which', return_value='aria2c'), patch.object(d.subprocess, 'Popen', side_effect=spawn):
             target = d.aria2_download(self.url + '/renew', self.root, 'model.bin', token='aria-secret', sha256=SHA)
+        spec = processes[0].stdin.value
+        self.assertIn('Authorization: Bearer aria-secret', spec)
+        self.assertIn('  out=model.bin.part\n', spec)
+        self.assertIn(f'  dir={self.root.resolve()}\n', spec)
         self.assertEqual(target.read_bytes(), DATA)
         self.assertEqual(self.server.redirects, 2)
         for path in self.root.glob('*.json'):

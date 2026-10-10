@@ -14,6 +14,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import warnings
@@ -88,13 +89,29 @@ def _validate_options(sha256, expected_size):
         raise ValueError("expected_size must be a positive byte count")
 
 
+def _copy_with_progress(source, destination, show_progress=True):
+    from tqdm.auto import tqdm
+
+    total = source.stat().st_size
+    with source.open("rb") as src, destination.open("wb") as dst:
+        with tqdm(total=total, desc=source.name, unit="B", unit_scale=True,
+                  unit_divisor=1024, file=sys.stderr,
+                  disable=not show_progress) as progress:
+            for chunk in iter(lambda: src.read(4 * 1024 * 1024), b""):
+                dst.write(chunk)
+                progress.update(len(chunk))
+        dst.flush()
+        os.fsync(dst.fileno())
+    shutil.copystat(source, destination)
+
+
 def _valid(path, size=None, sha256=None):
     return (path.is_file() and path.stat().st_size > 0
             and (size is None or path.stat().st_size == size)
             and (sha256 is None or _hash(path) == sha256.lower()))
 
 
-def cache_file(source, directory, *, sha256=None, expected_size=None):
+def cache_file(source, directory, *, sha256=None, expected_size=None, show_progress=True):
     """Atomic local copy with source identity, size/mtime and optional SHA256."""
     from filelock import FileLock
     _validate_options(sha256, expected_size)
@@ -116,7 +133,7 @@ def cache_file(source, directory, *, sha256=None, expected_size=None):
         with tempfile.NamedTemporaryFile(dir=target.parent, suffix=".tmp", delete=False) as f:
             temporary = Path(f.name)
         try:
-            shutil.copy2(source, temporary)
+            _copy_with_progress(source, temporary, show_progress)
             if (source.stat().st_size, source.stat().st_mtime_ns) != (stat.st_size, stat.st_mtime_ns) or not _valid(temporary, expected_size or stat.st_size, sha256):
                 raise DownloadError("Local source changed or failed integrity validation")
             temporary.replace(target)
@@ -132,7 +149,7 @@ def _headers(token):
     return {"Authorization": f"Bearer {token}"} if token else {}
 
 
-def _transfer_http(url, part, state_path, identity, headers, timeout):
+def _transfer_http(url, part, state_path, identity, headers, timeout, show_progress):
     import requests
     state = _read(state_path)
     offset = part.stat().st_size if part.exists() else 0
@@ -176,17 +193,22 @@ def _transfer_http(url, part, state_path, identity, headers, timeout):
             if length is not None:
                 total = int(length)
         _write(state_path, {"source": identity, "validator": current, "size": total})
-        with part.open("ab" if offset else "wb") as f:
-            for chunk in response.iter_content(1024 * 1024):
-                f.write(chunk)
-            f.flush()
-            os.fsync(f.fileno())
+        from tqdm.auto import tqdm
+        with tqdm(total=total, initial=offset, desc=part.name.removesuffix(".part"),
+                  unit="B", unit_scale=True, unit_divisor=1024,
+                  file=sys.stderr, disable=not show_progress) as progress:
+            with part.open("ab" if offset else "wb") as f:
+                for chunk in response.iter_content(1024 * 1024):
+                    f.write(chunk)
+                    progress.update(len(chunk))
+                f.flush()
+                os.fsync(f.fileno())
         if total is not None and part.stat().st_size != total:
             raise DownloadError("Incomplete download")
         return total
 
 
-def _transfer_aria2(url, part, state_path, identity, headers, timeout, connections):
+def _transfer_aria2(url, part, state_path, identity, headers, timeout, connections, show_progress):
     import requests
     binary = shutil.which("aria2c")
     if binary is None:
@@ -215,16 +237,44 @@ def _transfer_aria2(url, part, state_path, identity, headers, timeout, connectio
     # With --input-file, aria2 requires out on the individual input entry.
     spec = (final_url + f"\n  dir={part.parent}\n  out={part.name}\n"
             + "".join(f"  header={k}: {v}\n" for k, v in final_headers.items()))
-    result = subprocess.run([binary, "--input-file=-",
+    process = subprocess.Popen([binary, "--input-file=-",
                              "--continue=true", "--allow-overwrite=true", "--auto-file-renaming=false",
                              "--max-tries=1", f"--connect-timeout={timeout[0] if isinstance(timeout, tuple) else timeout}",
                              f"--timeout={timeout[1] if isinstance(timeout, tuple) else timeout}", f"--max-connection-per-server={connections}",
-                             f"--split={connections}", "--console-log-level=error",
+                             f"--split={connections}", "--file-allocation=none", "--console-log-level=error",
                              "--download-result=hide", "--enable-color=false"],
-                            input=spec, text=True, stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL)
-    if result.returncode:
-        raise DownloadError(f"aria2c failed (exit {result.returncode})")
+                            stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL, text=True)
+    try:
+        process.stdin.write(spec)
+        process.stdin.close()
+        from tqdm.auto import tqdm
+        current_size = part.stat().st_size if part.exists() else 0
+        with tqdm(total=total, initial=current_size, desc=part.name.removesuffix(".part"),
+                  unit="B", unit_scale=True, unit_divisor=1024,
+                  file=sys.stderr, disable=not show_progress) as progress:
+            while process.poll() is None:
+                time.sleep(.25)
+                size = part.stat().st_size if part.exists() else 0
+                if size >= current_size:
+                    progress.update(size - current_size)
+                else:
+                    progress.n = size
+                    progress.refresh()
+                current_size = size
+            result_code = process.wait()
+            size = part.stat().st_size if part.exists() else 0
+            if size >= current_size:
+                progress.update(size - current_size)
+            elif size != current_size:
+                progress.n = size
+                progress.refresh()
+    except BaseException:
+        process.kill()
+        process.wait()
+        raise
+    if result_code:
+        raise DownloadError(f"aria2c failed (exit {result_code})")
     if not part.is_file():
         raise DownloadError("aria2c did not produce the requested file")
     if total is not None and part.stat().st_size != total:
@@ -234,6 +284,7 @@ def _transfer_aria2(url, part, state_path, identity, headers, timeout, connectio
 
 def _download(url, directory, filename, *, token=None, sha256=None, expected_size=None,
               backend="requests", connections=16, retries=3, timeout=(15, 120), force=False,
+              show_progress=True,
               identity=None):
     import requests
     from filelock import FileLock
@@ -262,9 +313,9 @@ def _download(url, directory, filename, *, token=None, sha256=None, expected_siz
                     if _sidecar(part, ".aria2").exists():
                         part.unlink(missing_ok=True)
                         _sidecar(part, ".aria2").unlink()
-                    total = _transfer_http(url, part, state, identity, headers, timeout)
+                    total = _transfer_http(url, part, state, identity, headers, timeout, show_progress)
                 else:
-                    total = _transfer_aria2(url, part, state, identity, headers, timeout, connections)
+                    total = _transfer_aria2(url, part, state, identity, headers, timeout, connections, show_progress)
                 if not _valid(part, expected_size or total, sha256):
                     part.unlink(missing_ok=True)
                     _sidecar(part, ".aria2").unlink(missing_ok=True)
@@ -372,7 +423,7 @@ def resolve_model_file(cfg, *, civitai_token=None, hf_token=None):
     """
     sources = _model_sources(cfg)
     directory = cfg["dst_dir"]
-    options = {k: cfg[k] for k in ("backend", "connections", "retries", "timeout", "force") if k in cfg}
+    options = {k: cfg[k] for k in ("backend", "connections", "retries", "timeout", "force", "show_progress") if k in cfg}
     if sources[0] != "src":
         try:
             if sources[0] == "civitai":
@@ -390,6 +441,7 @@ def resolve_model_file(cfg, *, civitai_token=None, hf_token=None):
         cfg["src"], directory,
         sha256=cfg.get("sha256", remote.get("sha256")),
         expected_size=cfg.get("expected_size", remote.get("expected_size")),
+        show_progress=cfg.get("show_progress", True),
     )
 
 

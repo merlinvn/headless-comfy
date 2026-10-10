@@ -249,7 +249,7 @@ LoRA stacks for a prompt. In `all_random` mode, each image gets its own size.
 Dimensions remain persisted for resume.
 The old LoRA choices and seven input/output mappings remain in the notebook.
 
-## Portable model downloads (0.3.0)
+## Portable model downloads (0.3.1)
 
 `headless_comfy.downloads` has no Colab/Drive/RunPod imports, GPU initialization,
 provider detection, shell setup, or automatic OS package installation. Python
@@ -356,6 +356,10 @@ branches are not revalidated remotely; set top-level `force=True` to refresh.
 For local sources, identity includes resolved source path, size and mtime; use
 SHA256 if files can change while keeping the same size and timestamp.
 
+Downloads and Drive/local copies show a progress bar by default; set
+`show_progress=False` on a model config or low-level download call to hide it.
+Progress displays the filename, byte count, speed and ETA without printing signed URLs.
+
 Top-level remote options: `backend="requests"` or `"aria2"`, `connections=16`
 (1–16; aria2 only), `retries=3`, `timeout=(15, 120)`, `force=False`. `workers`
 controls parallel files; requests uses one stream per file. Low-level public API:
@@ -396,5 +400,5 @@ python examples/portable_smoke.py models.json --output smoke.png
 Inspect the PNG, run again to verify cache reuse, interrupt a download and restart,
 then restart the Pod/runtime to check the configured storage lifetime. This script
 uses the Krea2 two-pass defaults; adapt the pipeline for other model families.
-Version 0.3.0 must be built/published before the notebook's release installer can
-fetch it. For testing unreleased changes, install the locally built wheel instead (set `HC_WHEEL_URL` in the notebook).
+The notebook installer uses the matching published wheel. For unreleased changes,
+set `HC_WHEEL_URL` to a locally built wheel in the notebook.
